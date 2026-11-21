@@ -40,6 +40,8 @@ Improvements:
   scrollback with Shell Integration. Saving
   window state for restoration now skips what
   hasn’t changed and writes less to disk.
+- The Color Presets menu responds faster when
+  you scroll away from a preview or dismiss it.
 
 Bug Fixes:
 - When a program turned on light/dark mode

@@ -123,7 +123,9 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
     IBOutlet NSButton *_modeWarning;
     IBOutlet iTermHueVisualizationView *_hueVisualization;
 
-    NSDictionary<NSString *, id> *_savedColors;
+    ProfileModel *_previewModel;
+    NSString *_previewGuid;
+    NSMutableDictionary<NSString *, id> *_savedColors;
     NSTimer *_timer;
 }
 
@@ -904,7 +906,8 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
 }
 
 - (void)loadColorPreset:(id)sender {
-    _savedColors = nil;
+    [self removeTimer];
+    [self restoreColors];
     [self loadColorPresetWithName:[sender identifier] prompt:YES];
 }
 
@@ -948,30 +951,53 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
     return YES;
 }
 
-- (NSDictionary *)currentColors {
-    NSMutableDictionary<NSString *, id> *dict = [NSMutableDictionary dictionary];
-    const BOOL separate = [self boolForKey:KEY_USE_SEPARATE_COLORS_FOR_LIGHT_AND_DARK_MODE];
-    for (NSString *key in [ProfileModel colorKeysWithModes:NO]) {
-        dict[key] = [self objectForKey:key];
+- (void)previewColorPresetWithName:(NSString *)presetName {
+    ProfileModel *model = [self.delegate profilePreferencesCurrentModel];
+    Profile *profile = [self.delegate profilePreferencesCurrentProfile];
+    NSString *guid = profile[KEY_GUID];
+    if (!model || !guid) {
+        DLog(@"No selected profile for color preset preview");
+        return;
     }
-    if (separate) {
-        for (NSString *key in [ProfileModel colorKeysWithModes:YES]) {
-            id value = [self objectForKey:key];
-            if (value) {
-                dict[key] = value;
-            }
+    if (!_savedColors) {
+        _previewModel = model;
+        _previewGuid = [guid copy];
+        _savedColors = [NSMutableDictionary dictionary];
+    }
+    const BOOL modes = [self boolForKey:KEY_USE_SEPARATE_COLORS_FOR_LIGHT_AND_DARK_MODE];
+    const BOOL dark = _mode.selectedTag == 1;
+    for (NSString *baseKey in [ProfileModel colorKeysWithModes:NO]) {
+        NSString *key = iTermAmendedColorKey2(baseKey, modes, dark);
+        if (!_savedColors[key]) {
+            // Keep the value from before the first preview, including an absent key.
+            _savedColors[key] = profile[key] ?: [NSNull null];
         }
     }
-    return dict;
+    [self loadColorPresetWithName:presetName prompt:NO];
 }
 
 - (void)restoreColors {
-    [_savedColors enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, id  _Nonnull obj, BOOL * _Nonnull stop) {
-        id value = [obj nilIfNull];
-        if (![NSObject object:value isEqualToObject:[self objectForKey:key]]) {
-            [self setObject:value forKey:key];
-        }
-    }];
+    if (!_savedColors) {
+        return;
+    }
+    ProfileModel *model = _previewModel;
+    Profile *profile = [model bookmarkWithGuid:_previewGuid];
+    NSDictionary<NSString *, id> *savedColors = _savedColors;
+    _previewModel = nil;
+    _previewGuid = nil;
+    _savedColors = nil;
+
+    if (!profile) {
+        return;
+    }
+    MutableProfile *restored = [profile mutableCopy];
+    for (NSString *key in savedColors) {
+        restored[key] = [savedColors[key] nilIfNull];
+    }
+    if (![profile isEqual:restored]) {
+        [model setBookmark:[restored copy] withGuid:profile[KEY_GUID]];
+        [iTermProfilePreferences commitModel:model];
+    }
 }
 
 // If the current color settings exactly match a preset, place a check mark next to it and uncheck
@@ -980,7 +1006,6 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
     BOOL found = NO;
     iTermColorPresetDictionary *allPresets = [iTermColorPresets allColorPresets];
 
-    _savedColors = [self currentColors];
     const BOOL separate = [self boolForKey:KEY_USE_SEPARATE_COLORS_FOR_LIGHT_AND_DARK_MODE];
 
     for (NSMenuItem *item in _presetsMenu.itemArray) {
@@ -1024,12 +1049,22 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
 }
 
 - (void)previewColors:(NSTimer *)timer {
-    NSMenuItem *item = timer.userInfo;
-    if (_timer) {
-        [self loadColorPresetWithName:item.identifier prompt:NO];
+    if (timer != _timer) {
+        return;
     }
+    if (_savedColors && (_previewModel != [self.delegate profilePreferencesCurrentModel] ||
+                         ![_previewGuid isEqualToString:[self.delegate profilePreferencesCurrentProfile][KEY_GUID]])) {
+        [self restoreColors];
+        if (timer != _timer) {
+            // A synchronous reload ended menu tracking or moved the highlight.
+            return;
+        }
+    }
+    NSMenuItem *item = timer.userInfo;
     [self removeTimer];
+    [self previewColorPresetWithName:item.identifier];
 }
+
 - (void)removeTimer {
     [_timer invalidate];
     _timer = nil;
@@ -1038,7 +1073,6 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
 - (void)menuDidClose:(NSMenu *)menu {
     [self removeTimer];
     [self restoreColors];
-    _savedColors = nil;
 }
 
 #pragma mark - Actions
