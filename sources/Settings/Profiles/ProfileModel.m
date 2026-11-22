@@ -877,7 +877,12 @@ static NSInteger gLessLoggingCount;
 - (Profile *)setObjectsFromDictionary:(NSDictionary *)dictionary inProfile:(Profile *)profile {
     NSMutableDictionary *newDict = [[profile mutableCopy] autorelease];
     [dictionary enumerateKeysAndObjectsUsingBlock:^(id  _Nonnull key, id  _Nonnull obj, BOOL * _Nonnull stop) {
-        [newDict setObject:obj forKey:key];
+        if ([obj isKindOfClass:[NSNull class]]) {
+            // NSNull removes the key. A profile can’t store it.
+            [newDict removeObjectForKey:key];
+        } else {
+            [newDict setObject:obj forKey:key];
+        }
     }];
     NSString *guid = [profile objectForKey:KEY_GUID];
     Profile *newProfile = [NSDictionary dictionaryWithDictionary:newDict];

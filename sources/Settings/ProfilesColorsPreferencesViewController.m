@@ -969,8 +969,11 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
     for (NSString *baseKey in [ProfileModel colorKeysWithModes:NO]) {
         NSString *key = iTermAmendedColorKey2(baseKey, modes, dark);
         if (!_savedColors[key]) {
-            // Keep the value from before the first preview, including an absent key.
-            _savedColors[key] = profile[key] ?: [NSNull null];
+            // Keep the value from before the first preview. A key that isn’t set is saved as its
+            // default, so restoring it writes the default back. A rewritable dynamic profile only
+            // takes a previewed value out of its file when it sees that write. A key with no
+            // default, such as a tab color, is saved as NSNull and restoring it removes the key.
+            _savedColors[key] = [iTermProfilePreferences objectForKey:key inProfile:profile] ?: [NSNull null];
         }
     }
     [self loadColorPresetWithName:presetName prompt:NO];
@@ -981,28 +984,56 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
         return;
     }
     ProfileModel *model = _previewModel;
-    Profile *profile = [model bookmarkWithGuid:_previewGuid];
+    NSString *guid = _previewGuid;
     NSDictionary<NSString *, id> *savedColors = _savedColors;
+    const BOOL selected = [self previewedProfileIsSelected];
+    // Forget the preview before writing, so nothing the write triggers sees it as still active.
+    [self forgetPreview];
+
+    Profile *profile = [model bookmarkWithGuid:guid];
+    if (!profile) {
+        DLog(@"Previewed profile %@ is gone", guid);
+        return;
+    }
+    // The saved keys already have their light or dark mode suffix, so look them up in the profile
+    // directly. -objectForKey: would add the suffix a second time.
+    NSDictionary<NSString *, id> *changes = [savedColors filteredWithBlock:^BOOL(NSString *key, id original) {
+        return ![NSObject object:[original nilIfNull]
+                 isEqualToObject:[iTermProfilePreferences objectForKey:key inProfile:profile]];
+    }];
+    DLog(@"Restore %@ colors in profile %@ after preview", @(changes.count), guid);
+    if (!changes.count) {
+        return;
+    }
+    if (selected) {
+        [self setObjectsFromDictionary:changes];
+    } else {
+        // Another profile was selected during the preview. -setObjectsFromDictionary: writes to
+        // the selected profile and its delegate callbacks are about that profile too, so update
+        // the previewed one directly.
+        [iTermProfilePreferences setObjectsFromDictionary:changes inProfile:profile model:model];
+    }
+}
+
+- (void)forgetPreview {
     _previewModel = nil;
     _previewGuid = nil;
     _savedColors = nil;
+}
 
-    if (!profile) {
-        return;
-    }
-    MutableProfile *restored = [profile mutableCopy];
-    for (NSString *key in savedColors) {
-        restored[key] = [savedColors[key] nilIfNull];
-    }
-    if (![profile isEqual:restored]) {
-        [model setBookmark:[restored copy] withGuid:profile[KEY_GUID]];
-        [iTermProfilePreferences commitModel:model];
-    }
+- (BOOL)previewedProfileIsSelected {
+    return (_previewModel == [self.delegate profilePreferencesCurrentModel] &&
+            [_previewGuid isEqualToString:[self.delegate profilePreferencesCurrentProfile][KEY_GUID]]);
 }
 
 // If the current color settings exactly match a preset, place a check mark next to it and uncheck
 // all others. If multiple presets match, check the first matching one.
 - (void)popupButtonWillPopUp:(id)sender {
+    // Forget a preview left over from a menu that ended without -menuDidClose:. Restoring it now
+    // could undo changes made since then.
+    [self removeTimer];
+    [self forgetPreview];
+
     BOOL found = NO;
     iTermColorPresetDictionary *allPresets = [iTermColorPresets allColorPresets];
 
@@ -1052,8 +1083,7 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
     if (timer != _timer) {
         return;
     }
-    if (_savedColors && (_previewModel != [self.delegate profilePreferencesCurrentModel] ||
-                         ![_previewGuid isEqualToString:[self.delegate profilePreferencesCurrentProfile][KEY_GUID]])) {
+    if (_savedColors && ![self previewedProfileIsSelected]) {
         [self restoreColors];
         if (timer != _timer) {
             // A synchronous reload ended menu tracking or moved the highlight.
@@ -1073,6 +1103,16 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
 - (void)menuDidClose:(NSMenu *)menu {
     [self removeTimer];
     [self restoreColors];
+}
+
+#pragma mark - Testing
+
+- (NSTimer *)previewTimerForTesting {
+    return _timer;
+}
+
+- (void)setModeButtonForTesting:(NSPopUpButton *)modeButton {
+    _mode = modeButton;
 }
 
 #pragma mark - Actions
