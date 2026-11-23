@@ -878,7 +878,6 @@ static NSInteger gLessLoggingCount;
     NSMutableDictionary *newDict = [[profile mutableCopy] autorelease];
     [dictionary enumerateKeysAndObjectsUsingBlock:^(id  _Nonnull key, id  _Nonnull obj, BOOL * _Nonnull stop) {
         if ([obj isKindOfClass:[NSNull class]]) {
-            // NSNull removes the key. A profile can’t store it.
             [newDict removeObjectForKey:key];
         } else {
             [newDict setObject:obj forKey:key];

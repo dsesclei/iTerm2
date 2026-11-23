@@ -1,5 +1,5 @@
-// These tests are in Objective-C because they call selectors that are private to
-// ProfilesColorsPreferencesViewController.m and ProfileModel.m, which Swift can't see.
+// In Objective-C so the tests can call private methods of
+// ProfilesColorsPreferencesViewController and ProfileModel.
 
 #import <XCTest/XCTest.h>
 
@@ -13,8 +13,6 @@
 - (instancetype)initWithName:(NSString *)name;
 @end
 
-// The pop-up notification handler, the method a preview's timer calls, and the menu delegate
-// methods aren't in the public header.
 @interface ProfilesColorsPreferencesViewController (ColorPresetPreviewTests) <NSMenuDelegate>
 - (void)popupButtonWillPopUp:(id)sender;
 - (void)loadColorPresetWithName:(NSString *)presetName prompt:(BOOL)prompt;
@@ -28,27 +26,26 @@
     NSString *_guid;
     ProfilesColorsPreferencesViewController *_controller;
     NSMenu *_menu;
-    // Keys the controller announced through -profilePreferencesViewController:willSetObjectWithKey:.
+    // Keys passed to willSetObjectWithKey:.
     NSMutableArray<NSString *> *_announcedKeys;
 }
 
 - (void)setUp {
     [super setUp];
-    // A model created this way has no backing user defaults.
+    // Not backed by user defaults.
     _model = [[ProfileModel alloc] initWithName:@"ColorPresetPreviewTests"];
     _guid = [ProfileModel freshGuid];
     [_model addBookmark:@{ KEY_GUID: _guid }];
     [self loadPreset:@"Solarized Dark" into:0];
-    // The nib isn't loaded, so there is no mode selector. The controller treats that as light mode.
+    // Without the nib, _mode is nil (selectedTag == 0, i.e. light mode).
     _controller = [[ProfilesColorsPreferencesViewController alloc] initWithNibName:nil bundle:nil];
     _controller.delegate = self;
     _menu = [[NSMenu alloc] initWithTitle:@"Color Presets"];
     _announcedKeys = [NSMutableArray array];
 }
 
-// Loads a preset into the selected profile the way choosing it does. `destination` is 0 for the
-// shared colors, or the light or dark mode ones. Tests compare whole profiles, so they start with
-// the preset's colors in place.
+// Tests compare whole profiles, so fill in the colors first. Restoring a color the profile lacked
+// writes its default.
 - (void)loadPreset:(NSString *)name into:(iTermColorPresetMode)destination {
     XCTAssertTrue([_model addColorPresetNamed:name
                                     toProfile:self.profilePreferencesCurrentProfile
@@ -56,7 +53,6 @@
                                            to:destination]);
 }
 
-// Gives the profile separate light and dark mode colors, with the light ones filled in.
 - (void)useSeparateColors {
     [self loadPreset:@"Solarized Dark" into:iTermColorPresetModeLight];
     [_model setObject:@YES
@@ -64,12 +60,11 @@
            inBookmark:self.profilePreferencesCurrentProfile];
 }
 
-// Does what the preview timer does when the highlight has stayed on a preset.
+// The same call the preview timer makes.
 - (void)previewPreset:(NSString *)name {
     [_controller loadColorPresetWithName:name prompt:NO];
 }
 
-// Counts kReloadAllProfiles notifications posted on this thread until the test ends.
 - (NSUInteger (^)(void))reloadCounter {
     __block NSUInteger reloads = 0;
     NSThread *thread = NSThread.currentThread;
@@ -98,18 +93,17 @@
     [self previewPreset:@"Tango Dark"];
     NSArray<NSString *> *changedKeys = [self keysThatDifferBetween:original
                                                                and:self.profilePreferencesCurrentProfile];
-    // One reload for a single key would prove nothing.
+    // Needs more than one changed key for the reload count to mean anything.
     XCTAssertGreaterThan(changedKeys.count, 1u);
 
     NSUInteger (^reloads)(void) = [self reloadCounter];
     [_announcedKeys removeAllObjects];
     [_controller menu:_menu willHighlightItem:nil];
     XCTAssertEqual(reloads(), 1u);
-    // Each restored key is announced to the delegate once, and nothing else is.
     XCTAssertEqualObjects([NSCountedSet setWithArray:_announcedKeys], [NSCountedSet setWithArray:changedKeys]);
     XCTAssertEqualObjects(self.profilePreferencesCurrentProfile, original);
 
-    // Nothing is left to restore when the menu closes.
+    // Closing the menu now shouldn't reload again.
     [_controller menuDidClose:_menu];
     XCTAssertEqual(reloads(), 1u);
 }
@@ -131,7 +125,7 @@
     XCTAssertEqualObjects(self.profilePreferencesCurrentProfile, original);
 }
 
-// No built-in preset has a tab color, so this takes a custom one.
+// No built-in preset has a tab color, so make one that does.
 - (void)testCancelingPreviewRemovesTabColorAddedByPreset {
     [self useSeparateColors];
     NSString *tabColorKey = KEY_TAB_COLOR COLORS_LIGHT_MODE_SUFFIX;

@@ -948,8 +948,8 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
     return YES;
 }
 
-// The colors a preset preview can change, under the keys they have in the profile for the selected
-// light or dark mode. A color with no value and no default, such as a tab color, is NSNull.
+// The colors a preset would replace, by amended key. A color that is unset and has no default,
+// like the tab color, is NSNull.
 - (NSDictionary<NSString *, id> *)currentColors {
     Profile *profile = [self.delegate profilePreferencesCurrentProfile];
     const BOOL separate = [self boolForKey:KEY_USE_SEPARATE_COLORS_FOR_LIGHT_AND_DARK_MODE];
@@ -964,14 +964,12 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
 
 - (void)restoreColors {
     Profile *profile = [self.delegate profilePreferencesCurrentProfile];
-    // The saved keys already have their light or dark mode suffix, so look them up in the profile
-    // directly. -objectForKey: would add the suffix a second time.
+    // _savedColors has amended keys, so don't use -objectForKey:, which would amend them again.
     NSDictionary<NSString *, id> *changes = [_savedColors filteredWithBlock:^BOOL(NSString *key, id original) {
         return ![NSObject object:[original nilIfNull]
                  isEqualToObject:[iTermProfilePreferences objectForKey:key inProfile:profile]];
     }];
     if (changes.count) {
-        // One update for all the colors. An NSNull removes its key.
         [self setObjectsFromDictionary:changes];
     }
 }
