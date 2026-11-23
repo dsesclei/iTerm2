@@ -948,8 +948,7 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
     return YES;
 }
 
-// The colors a preset would replace, by amended key. A color that is unset and has no default,
-// like the tab color, is NSNull.
+// The colors a preset would replace, by amended key. A color the profile doesn't set is NSNull.
 - (NSDictionary<NSString *, id> *)currentColors {
     Profile *profile = [self.delegate profilePreferencesCurrentProfile];
     const BOOL separate = [self boolForKey:KEY_USE_SEPARATE_COLORS_FOR_LIGHT_AND_DARK_MODE];
@@ -957,17 +956,17 @@ static NSString * const kColorGalleryURL = @"https://www.iterm2.com/colorgallery
     NSMutableDictionary<NSString *, id> *dict = [NSMutableDictionary dictionary];
     for (NSString *baseKey in [ProfileModel colorKeysWithModes:NO]) {
         NSString *key = iTermAmendedColorKey2(baseKey, separate, dark);
-        dict[key] = [iTermProfilePreferences objectForKey:key inProfile:profile] ?: [NSNull null];
+        dict[key] = profile[key] ?: [NSNull null];
     }
     return dict;
 }
 
 - (void)restoreColors {
     Profile *profile = [self.delegate profilePreferencesCurrentProfile];
-    // _savedColors has amended keys, so don't use -objectForKey:, which would amend them again.
+    // Read the profile directly. -objectForKey: would amend these already-amended keys again and
+    // substitute a default for a color the profile doesn't set.
     NSDictionary<NSString *, id> *changes = [_savedColors filteredWithBlock:^BOOL(NSString *key, id original) {
-        return ![NSObject object:[original nilIfNull]
-                 isEqualToObject:[iTermProfilePreferences objectForKey:key inProfile:profile]];
+        return ![NSObject object:[original nilIfNull] isEqualToObject:profile[key]];
     }];
     if (changes.count) {
         [self setObjectsFromDictionary:changes];
